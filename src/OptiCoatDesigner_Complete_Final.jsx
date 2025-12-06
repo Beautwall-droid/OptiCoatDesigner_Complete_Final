@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -275,8 +275,20 @@ const ThinFilmDesigner = () => {
   const [stressResults, setStressResults] = useState(null);
   const [showStressModal, setShowStressModal] = useState(false);
 
-  // Ref to prevent useEffect interference during delete operations
+  // Refs to prevent useEffect interference during delete operations
+  // and to track previous layers for comparison to avoid infinite loops
   const isDeletingRef = React.useRef(false);
+  const prevLayersRef = React.useRef(null);
+  const isUpdatingStackRef = React.useRef(false);
+
+  // Helper function to safely parse number inputs
+  const safeParseFloat = (value, defaultValue = 0) => {
+    if (value === "" || value === null || value === undefined) {
+      return defaultValue;
+    }
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? defaultValue : parsed;
+  };
 
   // IAD Functions
   const openIADModal = (layerId) => {
@@ -1629,9 +1641,16 @@ const ThinFilmDesigner = () => {
     }, 500);
   };
 
+  // BUG FIX #2 & #3: Improved useEffect to prevent infinite loops
+  // Uses refs to track previous state and avoid unnecessary updates
   useEffect(() => {
-    // Don't run during delete operations
+    // Skip during delete operations (BUG FIX #1)
     if (isDeletingRef.current) {
+      return;
+    }
+
+    // Skip if we're in the middle of updating stacks from this effect
+    if (isUpdatingStackRef.current) {
       return;
     }
 
@@ -1640,19 +1659,42 @@ const ThinFilmDesigner = () => {
       layerStacks.length > 0 &&
       currentStackId !== null
     ) {
-      // Update current stack in layerStacks when layers change
-      const updatedStacks = layerStacks.map((stack) => {
-        if (stack.id === currentStackId) {
-          return { ...stack, layers: layers };
-        }
-        return stack;
-      });
+      // Check if layers actually changed by comparing with previous value
+      const layersJson = JSON.stringify(layers);
+      const prevLayersJson = prevLayersRef.current;
 
-      // Only update if actually changed to avoid infinite loop
-      if (JSON.stringify(updatedStacks) !== JSON.stringify(layerStacks)) {
-        setLayerStacks(updatedStacks);
+      // Only update layerStacks if layers have actually changed
+      if (layersJson !== prevLayersJson) {
+        prevLayersRef.current = layersJson;
+
+        // Check if the current stack's layers are different from our layers state
+        const currentStack = layerStacks.find((s) => s.id === currentStackId);
+        const currentStackLayersJson = currentStack
+          ? JSON.stringify(currentStack.layers)
+          : null;
+
+        if (currentStackLayersJson !== layersJson) {
+          // Mark that we're updating to prevent re-triggering
+          isUpdatingStackRef.current = true;
+
+          setLayerStacks((prevStacks) => {
+            const updatedStacks = prevStacks.map((stack) => {
+              if (stack.id === currentStackId) {
+                return { ...stack, layers: layers };
+              }
+              return stack;
+            });
+            return updatedStacks;
+          });
+
+          // Reset the flag after a microtask to allow the state update to complete
+          Promise.resolve().then(() => {
+            isUpdatingStackRef.current = false;
+          });
+        }
       }
 
+      // Always recalculate reflectivity when relevant dependencies change
       calculateReflectivity();
     } else if (activeTab === "designer" && layerStacks.length === 0) {
       // If no stacks, still calculate reflectivity for empty state
@@ -1668,52 +1710,74 @@ const ThinFilmDesigner = () => {
     activeTab,
     currentStackId,
     calculateReflectivity,
+    layerStacks.length, // Only depend on length, not the full array to avoid loops
   ]);
 
+  // BUG FIX #1: Properly use isDeletingRef during delete operations
+  const deleteLayerStack = (id) => {
+    // Set the deleting flag to prevent useEffect interference
+    isDeletingRef.current = true;
+
+    try {
+      const newStacks = layerStacks.filter((s) => s.id !== id);
+
+      // If we deleted the current stack, switch to another stack in the same machine
+      if (currentStackId === id) {
+        const machineStacks = newStacks.filter(
+          (s) => s.machineId === currentMachineId
+        );
+        if (machineStacks.length > 0) {
+          const newCurrentStack = machineStacks[0];
+          setCurrentStackId(newCurrentStack.id);
+          setLayers(newCurrentStack.layers);
+          // Update the ref to match new layers
+          prevLayersRef.current = JSON.stringify(newCurrentStack.layers);
+        } else {
+          // If no stacks remain in this machine, clear the current stack ID and layers
+          setCurrentStackId(null);
+          setLayers([]);
+          prevLayersRef.current = JSON.stringify([]);
+        }
+      }
+
+      setLayerStacks(newStacks);
+    } finally {
+      // Reset the deleting flag after state updates are queued
+      // Use setTimeout to ensure state updates have been processed
+      setTimeout(() => {
+        isDeletingRef.current = false;
+      }, 0);
+    }
+  };
+
   const addLayerStack = () => {
-    const colors = [
-      "#4f46e5",
-      "#ef4444",
-      "#10b981",
-      "#f59e0b",
-      "#8b5cf6",
-      "#ec4899",
-    ];
+    // Generate a new unique ID
+    const newId = Math.max(0, ...layerStacks.map((s) => s.id)) + 1;
+
+    // Count stacks in current machine for naming
     const machineStacks = layerStacks.filter(
       (s) => s.machineId === currentMachineId
     );
+
+    // Create new stack with default layers
     const newStack = {
-      id: Date.now(),
+      id: newId,
       machineId: currentMachineId,
       name: `Layer Stack ${machineStacks.length + 1}`,
-      layers: [{ id: 1, material: "SiO2", thickness: 100 }],
+      layers: [{ id: 1, material: "SiO2", thickness: 100, iad: null }],
       visible: true,
-      color: colors[layerStacks.length % colors.length],
+      color: `hsl(${(newId * 60) % 360}, 70%, 50%)`,
     };
+
+    // Add the new stack
     setLayerStacks([...layerStacks, newStack]);
-    setCurrentStackId(newStack.id);
+
+    // Switch to the new stack
+    setCurrentStackId(newId);
     setLayers(newStack.layers);
-  };
 
-  const deleteLayerStack = (id) => {
-    // Allow deleting all stacks, including the last one in a machine
-    const newStacks = layerStacks.filter((s) => s.id !== id);
-    setLayerStacks(newStacks);
-
-    // If we deleted the current stack, switch to another stack in the same machine
-    if (currentStackId === id) {
-      const machineStacks = newStacks.filter(
-        (s) => s.machineId === currentMachineId
-      );
-      if (machineStacks.length > 0) {
-        setCurrentStackId(machineStacks[0].id);
-        setLayers(machineStacks[0].layers);
-      } else {
-        // If no stacks remain in this machine, clear the current stack ID and layers
-        setCurrentStackId(null);
-        setLayers([]);
-      }
-    }
+    // Update the ref to match new layers
+    prevLayersRef.current = JSON.stringify(newStack.layers);
   };
 
   const switchLayerStack = (id) => {
@@ -1721,6 +1785,8 @@ const ThinFilmDesigner = () => {
     const stack = layerStacks.find((s) => s.id === id);
     if (stack) {
       setLayers(stack.layers);
+      // Update the ref to match new layers
+      prevLayersRef.current = JSON.stringify(stack.layers);
     }
   };
 
@@ -1775,30 +1841,41 @@ const ThinFilmDesigner = () => {
       return;
     }
 
-    // Delete all layer stacks associated with this machine
-    const newStacks = layerStacks.filter((s) => s.machineId !== id);
-    setLayerStacks(newStacks);
+    // Set deleting flag
+    isDeletingRef.current = true;
 
-    // Delete the machine
-    const newMachines = machines.filter((m) => m.id !== id);
-    setMachines(newMachines);
+    try {
+      // Delete all layer stacks associated with this machine
+      const newStacks = layerStacks.filter((s) => s.machineId !== id);
+      setLayerStacks(newStacks);
 
-    // Switch to another machine
-    if (currentMachineId === id && newMachines.length > 0) {
-      const newMachineId = newMachines[0].id;
-      setCurrentMachineId(newMachineId);
+      // Delete the machine
+      const newMachines = machines.filter((m) => m.id !== id);
+      setMachines(newMachines);
 
-      // Switch to a stack in the new machine if available
-      const newMachineStacks = newStacks.filter(
-        (s) => s.machineId === newMachineId
-      );
-      if (newMachineStacks.length > 0) {
-        setCurrentStackId(newMachineStacks[0].id);
-        setLayers(newMachineStacks[0].layers);
-      } else {
-        setCurrentStackId(null);
-        setLayers([]);
+      // Switch to another machine
+      if (currentMachineId === id && newMachines.length > 0) {
+        const newMachineId = newMachines[0].id;
+        setCurrentMachineId(newMachineId);
+
+        // Switch to a stack in the new machine if available
+        const newMachineStacks = newStacks.filter(
+          (s) => s.machineId === newMachineId
+        );
+        if (newMachineStacks.length > 0) {
+          setCurrentStackId(newMachineStacks[0].id);
+          setLayers(newMachineStacks[0].layers);
+          prevLayersRef.current = JSON.stringify(newMachineStacks[0].layers);
+        } else {
+          setCurrentStackId(null);
+          setLayers([]);
+          prevLayersRef.current = JSON.stringify([]);
+        }
       }
+    } finally {
+      setTimeout(() => {
+        isDeletingRef.current = false;
+      }, 0);
     }
   };
 
@@ -1810,9 +1887,11 @@ const ThinFilmDesigner = () => {
     if (machineStacks.length > 0) {
       setCurrentStackId(machineStacks[0].id);
       setLayers(machineStacks[0].layers);
+      prevLayersRef.current = JSON.stringify(machineStacks[0].layers);
     } else {
       setCurrentStackId(null);
       setLayers([]);
+      prevLayersRef.current = JSON.stringify([]);
     }
   };
 
@@ -1887,7 +1966,11 @@ const ThinFilmDesigner = () => {
           if (field === "material") return { ...l, material: value };
           // Allow empty string for user to clear and retype
           if (value === "" || value === null) return { ...l, [field]: "" };
-          return { ...l, [field]: parseFloat(value) };
+          const numValue = parseFloat(value);
+          // Prevent negative values for thickness
+          if (field === "thickness" && numValue < 0)
+            return { ...l, [field]: 0 };
+          return { ...l, [field]: numValue };
         }
         return l;
       })
@@ -2912,6 +2995,7 @@ const ThinFilmDesigner = () => {
     setLayerStacks([...layerStacks, newStack]);
     setCurrentStackId(newId);
     setLayers(newLayers); // IMPORTANT: Set the layers state so they display in the editor
+    prevLayersRef.current = JSON.stringify(newLayers);
     setActiveTab("designer");
   };
 
@@ -2974,7 +3058,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        voltage: parseFloat(e.target.value),
+                        voltage: safesafeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -2997,7 +3081,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        current: parseFloat(e.target.value),
+                        current: safesafeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -3020,7 +3104,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        o2Flow: parseFloat(e.target.value),
+                        o2Flow: safesafeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -3043,7 +3127,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        arFlow: parseFloat(e.target.value),
+                        arFlow: safesafeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -3066,7 +3150,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        riIncrease: parseFloat(e.target.value),
+                        riIncrease: safesafeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -3223,7 +3307,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setReflectivityRange({
                         ...reflectivityRange,
-                        min: parseFloat(e.target.value),
+                        min: safesafeParseFloat(e.target.value),
                       })
                     }
                     className="w-10 px-1 border rounded"
@@ -3236,7 +3320,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setReflectivityRange({
                         ...reflectivityRange,
-                        max: parseFloat(e.target.value),
+                        max: safesafeParseFloat(e.target.value),
                       })
                     }
                     className="w-10 px-1 border rounded"
@@ -3970,7 +4054,7 @@ const ThinFilmDesigner = () => {
                             onChange={(e) =>
                               setSubstrate({
                                 ...substrate,
-                                n: parseFloat(e.target.value) || 1.52,
+                                n: safesafeParseFloat(e.target.value) || 1.52,
                               })
                             }
                             className="w-full px-1 py-0.5 border rounded"
@@ -4177,7 +4261,10 @@ const ThinFilmDesigner = () => {
                     <span>
                       Total:{" "}
                       {layers
-                        .reduce((sum, l) => sum + l.thickness, 0)
+                        .reduce(
+                          (sum, l) => sum + (parseFloat(l.thickness) || 0),
+                          0
+                        )
                         .toFixed(1)}{" "}
                       nm
                     </span>
@@ -4426,7 +4513,7 @@ const ThinFilmDesigner = () => {
                             value={smoothnessWeight}
                             onChange={(e) =>
                               setSmoothnessWeight(
-                                parseFloat(e.target.value) || 0
+                                safesafeParseFloat(e.target.value) || 0
                               )
                             }
                             className="w-full px-2 py-1 border rounded text-sm"
@@ -4484,7 +4571,7 @@ const ThinFilmDesigner = () => {
                               value={adhesionThickness}
                               onChange={(e) =>
                                 setAdhesionThickness(
-                                  parseFloat(e.target.value) || 10
+                                  safesafeParseFloat(e.target.value) || 10
                                 )
                               }
                               className="w-full px-2 py-1 border rounded text-sm"
@@ -5682,7 +5769,7 @@ const ThinFilmDesigner = () => {
                             value={mcThicknessError}
                             onChange={(e) =>
                               setMcThicknessError(
-                                parseFloat(e.target.value) || 0
+                                safesafeParseFloat(e.target.value) || 0
                               )
                             }
                             className="w-full px-2 py-1 border rounded text-sm"
@@ -5703,7 +5790,9 @@ const ThinFilmDesigner = () => {
                             type="number"
                             value={mcRIError}
                             onChange={(e) =>
-                              setMcRIError(parseFloat(e.target.value) || 0)
+                              setMcRIError(
+                                safesafeParseFloat(e.target.value) || 0
+                              )
                             }
                             className="w-full px-2 py-1 border rounded text-sm"
                             min="0"
@@ -5723,7 +5812,9 @@ const ThinFilmDesigner = () => {
                             type="number"
                             value={mcToolingError}
                             onChange={(e) =>
-                              setMcToolingError(parseFloat(e.target.value) || 0)
+                              setMcToolingError(
+                                safesafeParseFloat(e.target.value) || 0
+                              )
                             }
                             className="w-full px-2 py-1 border rounded text-sm"
                             min="0"
