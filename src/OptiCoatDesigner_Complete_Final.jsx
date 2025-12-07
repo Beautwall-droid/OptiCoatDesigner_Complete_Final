@@ -3058,7 +3058,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        voltage: safesafeParseFloat(e.target.value),
+                        voltage: safeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -3081,7 +3081,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        current: safesafeParseFloat(e.target.value),
+                        current: safeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -3104,7 +3104,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        o2Flow: safesafeParseFloat(e.target.value),
+                        o2Flow: safeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -3127,7 +3127,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        arFlow: safesafeParseFloat(e.target.value),
+                        arFlow: safeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -3150,7 +3150,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setIADConfig({
                         ...iadConfig,
-                        riIncrease: safesafeParseFloat(e.target.value),
+                        riIncrease: safeParseFloat(e.target.value),
                       })
                     }
                     className="w-full p-2 border rounded"
@@ -3307,7 +3307,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setReflectivityRange({
                         ...reflectivityRange,
-                        min: safesafeParseFloat(e.target.value),
+                        min: safeParseFloat(e.target.value),
                       })
                     }
                     className="w-10 px-1 border rounded"
@@ -3320,7 +3320,7 @@ const ThinFilmDesigner = () => {
                     onChange={(e) =>
                       setReflectivityRange({
                         ...reflectivityRange,
-                        max: safesafeParseFloat(e.target.value),
+                        max: safeParseFloat(e.target.value),
                       })
                     }
                     className="w-10 px-1 border rounded"
@@ -4054,7 +4054,7 @@ const ThinFilmDesigner = () => {
                             onChange={(e) =>
                               setSubstrate({
                                 ...substrate,
-                                n: safesafeParseFloat(e.target.value) || 1.52,
+                                n: safeParseFloat(e.target.value) || 1.52,
                               })
                             }
                             className="w-full px-1 py-0.5 border rounded"
@@ -4513,7 +4513,7 @@ const ThinFilmDesigner = () => {
                             value={smoothnessWeight}
                             onChange={(e) =>
                               setSmoothnessWeight(
-                                safesafeParseFloat(e.target.value) || 0
+                                safeParseFloat(e.target.value) || 0
                               )
                             }
                             className="w-full px-2 py-1 border rounded text-sm"
@@ -4571,7 +4571,7 @@ const ThinFilmDesigner = () => {
                               value={adhesionThickness}
                               onChange={(e) =>
                                 setAdhesionThickness(
-                                  safesafeParseFloat(e.target.value) || 10
+                                  safeParseFloat(e.target.value) || 10
                                 )
                               }
                               className="w-full px-2 py-1 border rounded text-sm"
@@ -5769,7 +5769,7 @@ const ThinFilmDesigner = () => {
                             value={mcThicknessError}
                             onChange={(e) =>
                               setMcThicknessError(
-                                safesafeParseFloat(e.target.value) || 0
+                                safeParseFloat(e.target.value) || 0
                               )
                             }
                             className="w-full px-2 py-1 border rounded text-sm"
@@ -5791,7 +5791,7 @@ const ThinFilmDesigner = () => {
                             value={mcRIError}
                             onChange={(e) =>
                               setMcRIError(
-                                safesafeParseFloat(e.target.value) || 0
+                                safeParseFloat(e.target.value) || 0
                               )
                             }
                             className="w-full px-2 py-1 border rounded text-sm"
@@ -5813,7 +5813,7 @@ const ThinFilmDesigner = () => {
                             value={mcToolingError}
                             onChange={(e) =>
                               setMcToolingError(
-                                safesafeParseFloat(e.target.value) || 0
+                                safeParseFloat(e.target.value) || 0
                               )
                             }
                             className="w-full px-2 py-1 border rounded text-sm"
@@ -6588,3 +6588,4 @@ const ThinFilmDesigner = () => {
 };
 
 export default ThinFilmDesigner;
+
