@@ -1710,7 +1710,7 @@ const ThinFilmDesigner = () => {
     activeTab,
     currentStackId,
     calculateReflectivity,
-    layerStacks.length, // Only depend on length, not the full array to avoid loops
+    layerStacks, // Depend on full array to recalculate when stack layers update
   ]);
 
   // BUG FIX #1: Properly use isDeletingRef during delete operations
@@ -2113,16 +2113,21 @@ const ThinFilmDesigner = () => {
     const data = [];
 
     if (shiftMode === "left-right") {
-      // Wavelength shift: shift the curve horizontally
-      // Create a complete dataset with the shifted curve
-      for (let lambda = min; lambda <= max; lambda += step) {
-        // For the shifted preview, sample from (lambda - shift)
-        const sampledLambda = lambda - shift;
+      // Calculate scaled thicknesses - SAME method as applyShift uses
+      const centerWavelength = (min + max) / 2;
+      const scaleFactor = (centerWavelength + shift) / centerWavelength;
 
-        // Calculate R at the sampled wavelength
+      // Create preview layers with scaled thicknesses
+      const previewLayers = layers.map((layer) => ({
+        ...layer,
+        thickness: layer.thickness * scaleFactor,
+      }));
+
+      // Calculate reflectivity using the scaled layer thicknesses
+      for (let lambda = min; lambda <= max; lambda += step) {
         const R = calculateReflectivityAtWavelength(
-          sampledLambda,
-          layers,
+          lambda,
+          previewLayers,
           currentStackId
         );
 
@@ -4284,7 +4289,7 @@ const ThinFilmDesigner = () => {
                         value={layerFactor}
                         onChange={(e) => setLayerFactor(e.target.value)}
                         className="w-16 px-1 py-0.5 border rounded"
-                        step="0.1"
+                        step="0.01"
                         min="0"
                       />
                       <select
@@ -5790,9 +5795,7 @@ const ThinFilmDesigner = () => {
                             type="number"
                             value={mcRIError}
                             onChange={(e) =>
-                              setMcRIError(
-                                safeParseFloat(e.target.value) || 0
-                              )
+                              setMcRIError(safeParseFloat(e.target.value) || 0)
                             }
                             className="w-full px-2 py-1 border rounded text-sm"
                             min="0"
@@ -6588,4 +6591,3 @@ const ThinFilmDesigner = () => {
 };
 
 export default ThinFilmDesigner;
-
